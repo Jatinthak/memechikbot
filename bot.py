@@ -15,25 +15,22 @@ from telegram.ext import (
     CallbackContext,
 )
 
-# Debug: print current working directory
+# Debug: Print current working directory
 print("Current Working Directory:", os.getcwd())
 
-# Try to find the .env file explicitly
+# Load environment variables from .env file
 env_path = find_dotenv()
 print("Found .env file at:", env_path)
-
-# Load environment variables from .env
 load_dotenv(env_path)
 
-# Debug: print loaded BOT_TOKEN
-print("Loaded BOT_TOKEN:", os.getenv("BOT_TOKEN"))
-
 # Get credentials from environment variables
-TOKEN = os.getenv("BOT_TOKEN")
+BOT_TOKEN = os.getenv("BOT_TOKEN")
 IMGFLIP_USERNAME = os.getenv("IMGFLIP_USERNAME")
 IMGFLIP_PASSWORD = os.getenv("IMGFLIP_PASSWORD")
 
-if not TOKEN:
+print("Loaded BOT_TOKEN:", BOT_TOKEN)
+
+if not BOT_TOKEN:
     raise ValueError("BOT_TOKEN not found. Please set it in your .env file or environment variables.")
 
 # Setup logging
@@ -56,6 +53,7 @@ MEME_TEMPLATES = {
     "change my mind": "129242436"
 }
 ALL_CATEGORIES = list(MEME_TEMPLATES.keys())
+# For video memes, only allow these two categories
 VIDEO_CATEGORIES = ["dark humor", "distracted"]
 
 # Reddit request headers
@@ -67,6 +65,7 @@ REDDIT_HEADERS = {
 OPTION, CATEGORY, TOP_TEXT, BOTTOM_TEXT = range(4)
 
 def generate_custom_meme(category: str, top_text: str, bottom_text: str) -> str:
+    """Generate custom meme using the Imgflip API."""
     template_id = MEME_TEMPLATES.get(category.lower())
     if not template_id:
         return "Invalid category selected"
@@ -90,6 +89,7 @@ def generate_custom_meme(category: str, top_text: str, bottom_text: str) -> str:
         return "Failed to create meme. Please try again later."
 
 def fetch_random_reddit_image_meme() -> str:
+    """Fetch a random image meme from r/memes using the Reddit API."""
     try:
         response = requests.get(
             "https://www.reddit.com/r/memes/hot.json?limit=50&t=week",
@@ -111,6 +111,7 @@ def fetch_random_reddit_image_meme() -> str:
     return None
 
 def fetch_reddit_video(category: str) -> str:
+    """Fetch a random video meme from relevant subreddits for video mode."""
     subreddit_map = {
         "dark humor": ["dankvideos", "DarkHumorAndMemes"],
         "distracted": ["DistractedVideos", "FunnyVideos"]
@@ -135,6 +136,9 @@ def fetch_reddit_video(category: str) -> str:
     return None
 
 def fetch_random_meme(mode: str, category: str = None) -> str:
+    """Fetch a random meme using the Reddit API.
+       For 'random' mode, fetch an image meme from r/memes.
+       For 'video' mode, use fetch_reddit_video()."""
     if mode == "random":
         return fetch_random_reddit_image_meme()
     elif mode == "video":
@@ -142,6 +146,7 @@ def fetch_random_meme(mode: str, category: str = None) -> str:
     return None
 
 def start_command(update: Update, context: CallbackContext) -> int:
+    """Start conversation and display mode selection."""
     update.message.reply_photo(
         photo="https://i.imgur.com/ExdKOOz.png",
         caption=("🎉 Welcome to Meme Bot on Telegram! 🎉\n"
@@ -157,6 +162,7 @@ def start_command(update: Update, context: CallbackContext) -> int:
     return OPTION
 
 def handle_option(update: Update, context: CallbackContext) -> int:
+    """Handle mode selection."""
     query = update.callback_query
     query.answer()
     mode = query.data
@@ -173,6 +179,7 @@ def handle_option(update: Update, context: CallbackContext) -> int:
     return CATEGORY
 
 def handle_category(update: Update, context: CallbackContext) -> int:
+    """Handle category selection."""
     query = update.callback_query
     query.answer()
     category = query.data
@@ -208,11 +215,13 @@ def handle_category(update: Update, context: CallbackContext) -> int:
         return ConversationHandler.END
 
 def handle_top_text(update: Update, context: CallbackContext) -> int:
+    """Receive top text for custom memes."""
     context.user_data["top_text"] = update.message.text[:50]
     update.message.reply_text("Now send BOTTOM TEXT (max 50 characters):")
     return BOTTOM_TEXT
 
 def handle_bottom_text(update: Update, context: CallbackContext) -> int:
+    """Generate and send the final custom meme."""
     bottom_text = update.message.text[:50]
     context.user_data["bottom_text"] = bottom_text
     category = context.user_data["category"]
@@ -225,11 +234,13 @@ def handle_bottom_text(update: Update, context: CallbackContext) -> int:
     return ConversationHandler.END
 
 def cancel(update: Update, context: CallbackContext) -> int:
+    """Cancel the current operation."""
     update.message.reply_text("Operation cancelled. Type /start to begin again!")
     context.user_data.clear()
     return ConversationHandler.END
 
 def error_handler(update: Update, context: CallbackContext):
+    """Global error handler."""
     logger.error("Exception while handling update:", exc_info=context.error)
     if update.message:
         update.message.reply_text("⚠️ An error occurred. Please try again!")
@@ -237,24 +248,29 @@ def error_handler(update: Update, context: CallbackContext):
         update.callback_query.message.reply_text("⚠️ An error occurred. Please try again!")
 
 def main():
-    updater = Updater(TOKEN, use_context=True)
-    dp = updater.dispatcher
-    conv_handler = ConversationHandler(
-        entry_points=[CommandHandler("start", start_command)],
-        states={
-            OPTION: [CallbackQueryHandler(handle_option)],
-            CATEGORY: [CallbackQueryHandler(handle_category)],
-            TOP_TEXT: [MessageHandler(Filters.text & ~Filters.command, handle_top_text)],
-            BOTTOM_TEXT: [MessageHandler(Filters.text & ~Filters.command, handle_bottom_text)]
-        },
-        fallbacks=[CommandHandler("cancel", cancel)],
-        allow_reentry=True,
-    )
-    dp.add_handler(conv_handler)
-    dp.add_error_handler(error_handler)
-    updater.start_polling()
-    logger.info("Bot started and polling...")
-    updater.idle()
+    while True:
+        try:
+            updater = Updater(BOT_TOKEN, use_context=True)
+            dp = updater.dispatcher
+            conv_handler = ConversationHandler(
+                entry_points=[CommandHandler("start", start_command)],
+                states={
+                    OPTION: [CallbackQueryHandler(handle_option)],
+                    CATEGORY: [CallbackQueryHandler(handle_category)],
+                    TOP_TEXT: [MessageHandler(Filters.text & ~Filters.command, handle_top_text)],
+                    BOTTOM_TEXT: [MessageHandler(Filters.text & ~Filters.command, handle_bottom_text)]
+                },
+                fallbacks=[CommandHandler("cancel", cancel)],
+                allow_reentry=True,
+            )
+            dp.add_handler(conv_handler)
+            dp.add_error_handler(error_handler)
+            updater.start_polling()
+            logger.info("Bot started and polling...")
+            updater.idle()
+        except Exception as e:
+            logger.error(f"Bot crashed: {e}")
+            time.sleep(5)
 
 if __name__ == "__main__":
     main()
